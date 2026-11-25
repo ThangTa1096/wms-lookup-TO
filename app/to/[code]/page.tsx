@@ -35,6 +35,7 @@ export default function TODetailPage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [typeByGroup, setTypeByGroup] = useState<string>('');
 
   useEffect(() => {
     if (!toCode) return;
@@ -63,6 +64,20 @@ export default function TODetailPage() {
     })();
   }, [toCode]);
 
+  // Lấy Type đại diện của Group (1 Group = 1 Type)
+  useEffect(() => {
+    if (!to?.group_code) return;
+    (async () => {
+      const { data } = await supabase
+        .from('tracking_map')
+        .select('type_code')
+        .eq('group_code', to.group_code)
+        .limit(1)
+        .maybeSingle();
+      setTypeByGroup(data?.type_code || '');
+    })();
+  }, [to?.group_code]);
+
   function exportCSV() {
     if (!logs.length) return;
     const headers = ['STT', 'Tracking', 'Type', 'Group', 'Nhân viên', 'Thời gian', 'Trạng thái'];
@@ -85,6 +100,148 @@ export default function TODetailPage() {
     a.download = `${toCode}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function printTOLabel() {
+    if (!to) return;
+
+    const code = to.to_code;
+    const count = to.current_count;
+    const max = to.max_count;
+    const group = to.group_code;
+    const type = typeByGroup || '';
+
+    const qrData = encodeURIComponent(code);
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${qrData}&margin=0`;
+
+    const now = new Date().toLocaleString('vi-VN');
+
+    const win = window.open('', '_blank', 'width=400,height=700');
+    if (!win) {
+      alert('Trình duyệt chặn popup. Cho phép popup từ trang này.');
+      return;
+    }
+
+    win.document.write(`
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>In tem ${code}</title>
+<style>
+  @page { size: 50mm 100mm; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    width: 50mm; height: 100mm;
+    font-family: Arial, sans-serif; color: #000; background: #fff;
+    display: flex; flex-direction: column;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .label-top {
+    width: 100%; height: 50mm;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 2mm; gap: 1mm;
+  }
+  .label-top .qr { width: 38mm; height: 38mm; display: block; }
+  .label-top .code-small {
+    font-family: 'Courier New', monospace; font-size: 8pt; font-weight: 700;
+    text-align: center; letter-spacing: 0.3px; word-break: break-all; line-height: 1.1;
+  }
+  .fold-line {
+    width: 100%; height: 0; border-top: 0.3mm dashed #999; position: relative;
+  }
+  .fold-line::after {
+    content: '✂ gấp'; position: absolute; right: 1mm; top: -3mm;
+    font-size: 5pt; color: #999; background: #fff; padding: 0 1mm;
+  }
+  .label-bottom {
+    width: 100%; height: 50mm;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 3mm 2.5mm;
+  }
+  .label-bottom .header {
+    text-align: center; border-bottom: 0.4mm solid #000;
+    padding-bottom: 2mm; margin-bottom: 2mm;
+  }
+  .label-bottom .title {
+    font-size: 8pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .label-bottom .group {
+    font-size: 20pt; font-weight: 900; line-height: 1; margin-top: 1mm;
+  }
+  .label-bottom .body {
+    flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2mm;
+  }
+  .label-bottom .type-row { text-align: center; }
+  .label-bottom .type-label {
+    font-size: 7pt; color: #555; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .label-bottom .type-value {
+    font-size: 11pt; font-weight: 900; margin-top: 0.5mm; line-height: 1.15; word-break: break-word;
+  }
+  .label-bottom .row {
+    display: flex; justify-content: space-between;
+    font-size: 8pt; padding: 0.5mm 0;
+  }
+  .label-bottom .row .label { color: #444; }
+  .label-bottom .row .value { font-weight: 700; }
+  .label-bottom .footer {
+    text-align: center; font-size: 6pt; color: #555;
+    border-top: 0.2mm solid #ccc; padding-top: 1.5mm; margin-top: 1mm;
+  }
+</style>
+</head>
+<body>
+
+  <div class="label-top">
+    <img class="qr" src="${qrUrl}" alt="QR">
+    <div class="code-small">${code}</div>
+  </div>
+
+  <div class="fold-line"></div>
+
+  <div class="label-bottom">
+    <div class="header">
+      <div class="title">TRANSFER ORDER</div>
+      <div class="group">GROUP ${group}</div>
+    </div>
+    <div class="body">
+      <div class="type-row">
+        <div class="type-label">Loại hàng</div>
+        <div class="type-value">${type || '—'}</div>
+      </div>
+      <div class="row">
+        <span class="label">Số đơn</span>
+        <span class="value">${count} / ${max}</span>
+      </div>
+      <div class="row">
+        <span class="label">Ngày tạo</span>
+        <span class="value">${new Date(to.created_at).toLocaleDateString('vi-VN')}</span>
+      </div>
+    </div>
+    <div class="footer">${now}</div>
+  </div>
+
+</body>
+</html>
+    `);
+    win.document.close();
+
+    win.onload = () => {
+      setTimeout(() => {
+        try {
+          win.focus();
+          win.print();
+        } catch (e) {
+          console.error('[Print]', e);
+          setTimeout(() => win.close(), 1000);
+        }
+      }, 500);
+    };
+
+    win.onafterprint = () => {
+      setTimeout(() => win.close(), 300);
+    };
   }
 
   if (loading) return <p>Đang tải...</p>;
@@ -125,22 +282,39 @@ export default function TODetailPage() {
 
       <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>Danh sách đơn ({logs.length})</h2>
-        <button
-          onClick={exportCSV}
-          disabled={!logs.length}
-          style={{
-            padding: '8px 16px',
-            fontSize: 14,
-            fontWeight: 600,
-            background: logs.length ? '#16a34a' : '#94a3b8',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 8,
-            cursor: logs.length ? 'pointer' : 'not-allowed',
-          }}
-        >
-          ⬇ Xuất Excel (CSV)
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={printTOLabel}
+            style={{
+              padding: '8px 16px',
+              fontSize: 14,
+              fontWeight: 600,
+              background: '#2563eb',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              cursor: 'pointer',
+            }}
+          >
+            🖨 In lại tem
+          </button>
+          <button
+            onClick={exportCSV}
+            disabled={!logs.length}
+            style={{
+              padding: '8px 16px',
+              fontSize: 14,
+              fontWeight: 600,
+              background: logs.length ? '#16a34a' : '#94a3b8',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              cursor: logs.length ? 'pointer' : 'not-allowed',
+            }}
+          >
+            ⬇ Xuất Excel (CSV)
+          </button>
+        </div>
       </div>
 
       <div style={{ marginTop: 12, background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
